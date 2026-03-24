@@ -69,64 +69,110 @@
         const frames = curve.computeFrenetFrames(segmentsCount, true);
         const points = curve.getSpacedPoints(segmentsCount);
 
-        // O Teclado Musical (Trilhos de Piano)
-        const keyWidth = 18;  // Largura através da pista
-        const keyHeight = 1;  // Espessura
-        const keyDepth = 1.6; // Comprimento na direção da pista
+        // ============================================================
+        // TECLADO DE PIANO - Teclas grandes e claramente visíveis
+        // ============================================================
+        // Padrão de um teclado: 7 brancas por oitava, 5 pretas intercaladas
+        // Índices das teclas pretas numa oitava de 12 semitons:
+        //   0=C 1=C# 2=D 3=D# 4=E 5=F 6=F# 7=G 8=G# 9=A 10=A# 11=B
+        // Brancas: 0,2,4,5,7,9,11  |  Pretas: 1,3,6,8,10
+        const pianoPattern = [
+            { note: 0,  isBlack: false },
+            { note: 1,  isBlack: true  },
+            { note: 2,  isBlack: false },
+            { note: 3,  isBlack: true  },
+            { note: 4,  isBlack: false },
+            { note: 5,  isBlack: false },
+            { note: 6,  isBlack: true  },
+            { note: 7,  isBlack: false },
+            { note: 8,  isBlack: true  },
+            { note: 9,  isBlack: false },
+            { note: 10, isBlack: true  },
+            { note: 11, isBlack: false },
+        ];
 
-        const whiteKeyGeo = new THREE.BoxGeometry(keyWidth, keyHeight, keyDepth);
-        const blackKeyGeo = new THREE.BoxGeometry(keyWidth * 0.55, keyHeight * 2, keyDepth * 0.6);
+        // Dimensões das teclas
+        const keyStep    = 8;    // Segmentos por tecla (espaçamento entre teclas)
+        const keyWidth   = 20;   // Largura da tecla branca (eixo binormal = "através" da pista)
+        const keyHeight  = 1.8;  // Espessura da tecla branca
+        const keyDepth   = 6.0;  // Comprimento da tecla branca (ao longo da pista) - visível
+        const keyGap     = 0.5;  // Fresta entre teclas
 
-        const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2, metalness: 0.1 });
-        const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.5 });
+        const bkWidth    = keyWidth * 0.52;  // Tecla preta mais estreita
+        const bkHeight   = keyHeight * 2.2;  // Tecla preta mais alta (sobressai)
+        const bkDepth    = keyDepth * 0.60;  // Tecla preta mais curta (só frente)
 
-        // InstancedMesh para milhares de teclas extremamente rápido
-        const instancedWhiteKeys = new THREE.InstancedMesh(whiteKeyGeo, whiteMat, segmentsCount);
-        const instancedBlackKeys = new THREE.InstancedMesh(blackKeyGeo, blackMat, segmentsCount);
-        
+        // Geometrias
+        const whiteKeyGeo = new THREE.BoxGeometry(keyWidth - keyGap, keyHeight, keyDepth);
+        const blackKeyGeo = new THREE.BoxGeometry(bkWidth,           bkHeight,  bkDepth);
+
+        // Materiais  — teclas brancas levemente quentes e emissivas (marfim)
+        const whiteMat = new THREE.MeshStandardMaterial({
+            color:     0xfff5e4,
+            emissive:  0x443322,
+            roughness: 0.25,
+            metalness: 0.05,
+        });
+        // Teclas pretas: ébano escuro com reflexo sutil
+        const blackMat = new THREE.MeshStandardMaterial({
+            color:     0x111111,
+            emissive:  0x110022,
+            roughness: 0.35,
+            metalness: 0.55,
+        });
+
+        // Calcula quantas teclas cabem (baseado em segmentos / keyStep)
+        const totalKeys = Math.floor(segmentsCount / keyStep);
+
+        const instancedWhiteKeys = new THREE.InstancedMesh(whiteKeyGeo, whiteMat, totalKeys + 100);
+        const instancedBlackKeys = new THREE.InstancedMesh(blackKeyGeo, blackMat, totalKeys + 100);
+
         const dummy = new THREE.Object3D();
         const dummyMat = new THREE.Matrix4();
-        
+
         let whiteIdx = 0;
         let blackIdx = 0;
 
-        for(let i=0; i<segmentsCount; i++) {
-            const p = points[i];
-            const tDir = frames.tangents[i];
-            const n = frames.normals[i];
-            const b = frames.binormals[i];
+        for (let k = 0; k < totalKeys; k++) {
+            const segI = k * keyStep;
+            const p   = points[segI];
+            const tDir = frames.tangents[segI];
+            const n    = frames.normals[segI];
+            const b    = frames.binormals[segI];
 
-            // Padrão de piano (aprox)
-            const isBlack = [1, 3, 6, 8, 10].includes(i % 12);
+            const noteInOctave = pianoPattern[k % 12];
 
+            // Orientação: binormal = "X" (largura), normal = "Y" (cima), tangente = "Z" (frente)
             dummyMat.makeBasis(b, n, tDir);
-            
             dummy.position.copy(p);
             dummy.setRotationFromMatrix(dummyMat);
 
-            if (isBlack) {
-                // Eleva a tecla preta e desloca para a esquerda (fundo do teclado simulado)
-                dummy.position.addScaledVector(n, keyHeight * 0.5);
-                dummy.position.addScaledVector(b, -keyWidth * 0.2);
-                dummy.updateMatrix();
-                instancedBlackKeys.setMatrixAt(blackIdx++, dummy.matrix);
-            } else {
+            if (!noteInOctave.isBlack) {
+                // Tecla branca: na superfície do trilho
                 dummy.updateMatrix();
                 instancedWhiteKeys.setMatrixAt(whiteIdx++, dummy.matrix);
+            } else {
+                // Tecla preta: elevada acima E recuada para a frente do carrinho poder ver
+                dummy.position.addScaledVector(n, keyHeight * 0.8);  // Sobe
+                dummy.position.addScaledVector(tDir, -keyDepth * 0.18); // Recua levemente (visível)
+                dummy.updateMatrix();
+                instancedBlackKeys.setMatrixAt(blackIdx++, dummy.matrix);
             }
         }
         instancedWhiteKeys.count = whiteIdx;
         instancedBlackKeys.count = blackIdx;
+        instancedWhiteKeys.instanceMatrix.needsUpdate = true;
+        instancedBlackKeys.instanceMatrix.needsUpdate = true;
         scene.add(instancedWhiteKeys);
         scene.add(instancedBlackKeys);
 
-        // Tubos de Néon nas bordas do Teclado (Trilhos)
-        const tubeGeo1 = new THREE.TubeGeometry(curve, segmentsCount, 0.4, 8, true);
-        const tubeMat1 = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.3 });
+        // Trilhos neon laterais (bordas do teclado)
+        const tubeGeo1 = new THREE.TubeGeometry(curve, segmentsCount, 0.35, 8, true);
+        const tubeMat1 = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.25 });
         const tube1 = new THREE.Mesh(tubeGeo1, tubeMat1);
         scene.add(tube1);
 
-        const tubeMat2 = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, transparent: true, opacity: 0.3 });
+        const tubeMat2 = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, transparent: true, opacity: 0.25 });
         const tube2 = new THREE.Mesh(tubeGeo1, tubeMat2);
         
         // --- Notas Musicais como Sprites Billboard (sempre virados para a câmera) ---
