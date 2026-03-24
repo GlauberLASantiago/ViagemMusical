@@ -129,44 +129,90 @@
         const tubeMat2 = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, transparent: true, opacity: 0.3 });
         const tube2 = new THREE.Mesh(tubeGeo1, tubeMat2);
         
-        // As Notas Musicais Brilhantes
-        const notesCount = 600;
-        const noteGeo = new THREE.BoxGeometry(1, 1, 1);
-        const noteMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // Intensamente brilhante
-        const instancedNotes = new THREE.InstancedMesh(noteGeo, noteMat, notesCount);
-        const colors = [0x00ffff, 0xff0055, 0x00ff77, 0xffaa00, 0xaa00ff];
-        const colorObj = new THREE.Color();
-        
-        const notesData = [];
+        // --- Notas Musicais como Sprites Billboard (sempre virados para a câmera) ---
+        const noteSymbols = ['♩', '♪', '♫', '♬', '𝄞', '𝄢', '♭', '♯', '𝅗𝅥'];
+        const noteColors = ['#00ffff', '#ff3399', '#00ff88', '#ffaa00', '#cc44ff', '#ff6600', '#44aaff'];
 
-        for(let i=0; i<notesCount; i++) {
+        // Cria uma textura de canvas para cada símbolo
+        function createNoteTexture(symbol, color) {
+            const size = 256;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            // Fundo transparente
+            ctx.clearRect(0, 0, size, size);
+
+            // Halo brilhante (glow)
+            const gradient = ctx.createRadialGradient(size/2, size/2, 10, size/2, size/2, size/2);
+            gradient.addColorStop(0, color + 'cc');
+            gradient.addColorStop(0.4, color + '55');
+            gradient.addColorStop(1, color + '00');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+
+            // Sombra brilhante no texto
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 30;
+
+            // Desenha o símbolo musical centralizado
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 140px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(symbol, size / 2, size / 2 + 10);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            return texture;
+        }
+
+        // Pré-cria materiais únicos por combinação de símbolo + cor
+        const noteMaterials = [];
+        for (let s = 0; s < noteSymbols.length; s++) {
+            for (let c = 0; c < noteColors.length; c++) {
+                noteMaterials.push(
+                    new THREE.SpriteMaterial({
+                        map: createNoteTexture(noteSymbols[s], noteColors[c]),
+                        transparent: true,
+                        depthWrite: false,
+                        blending: THREE.AdditiveBlending
+                    })
+                );
+            }
+        }
+
+        const notesCount = 300; // Sprites individuais (mais pesados que instanciados)
+        const notesData = [];
+        const noteSprites = [];
+
+        for (let i = 0; i < notesCount; i++) {
             const segIdx = Math.floor(Math.random() * segmentsCount);
             const p = points[segIdx];
             const n = frames.normals[segIdx];
             const b = frames.binormals[segIdx];
-            const tDir = frames.tangents[segIdx];
 
-            // Posição no teclado (eixo binormal X)
-            const offsetWidth = (Math.random() - 0.5) * keyWidth * 0.8;
+            // Posição no teclado (eixo binormal X - largura do trilho)
+            const offsetWidth = (Math.random() - 0.5) * keyWidth * 0.85;
             const basePos = new THREE.Vector3().copy(p).addScaledVector(b, offsetWidth);
-            
-            dummyMat.makeBasis(b, n, tDir);
-            const rot = new THREE.Quaternion().setFromRotationMatrix(dummyMat);
+
+            // Escolhe material aleatório (símbolo + cor)
+            const matIdx = Math.floor(Math.random() * noteMaterials.length);
+            const sprite = new THREE.Sprite(noteMaterials[matIdx]);
+            const baseScale = 5 + Math.random() * 5;
+            sprite.scale.set(baseScale, baseScale, 1);
+            sprite.position.copy(basePos).addScaledVector(n, 2);
+            scene.add(sprite);
+            noteSprites.push(sprite);
 
             notesData.push({
                 segIdx: segIdx,
                 basePos: basePos,
                 normal: n,
-                rot: rot,
-                activeRadius: Math.random() * 200 + 100 // Distância em segmentos que nota começa a pular
+                baseScale: baseScale,
+                phaseOffset: Math.random() * Math.PI * 2 // Para animação de flutuação
             });
-
-            // Cores
-            colorObj.setHex(colors[Math.floor(Math.random() * colors.length)]);
-            instancedNotes.setColorAt(i, colorObj);
         }
-        instancedNotes.instanceColor.needsUpdate = true;
-        scene.add(instancedNotes);
 
         // Poiera e Estrelas Espaciais (Sentimento de velocidade)
         const particlesGeo = new THREE.BufferGeometry();
@@ -282,48 +328,41 @@
             tube1.position.copy(scene.position).addScaledVector(frames.binormals[0], keyWidth/2);
             tube2.position.copy(scene.position).addScaledVector(frames.binormals[0], -keyWidth/2);
 
-            // Animando as Notas Musicais: Dançam e pulam quando o carro se aproxima
-            for(let i=0; i<notesCount; i++) {
+            // Animando as Notas Musicais (Sprites Billboard)
+            for (let i = 0; i < notesCount; i++) {
                 const note = notesData[i];
+                const sprite = noteSprites[i];
                 let dist = note.segIdx - currentIdx;
-                
-                // Lidando com matemática do Loop circular (torus)
-                if (dist > segmentsCount/2) dist -= segmentsCount;
-                if (dist < -segmentsCount/2) dist += segmentsCount;
 
-                let heightScale = 1.0;
-                let lift = 1.0; // flutua um pouco
+                // Loop circular
+                if (dist > segmentsCount / 2) dist -= segmentsCount;
+                if (dist < -segmentsCount / 2) dist += segmentsCount;
 
-                // Se a nota está logo APÓS ou PERTO de nós na frente (distância > 0)
-                if (dist > 0 && dist < 120) {
-                    // Pulos graciosos enquanto nos aproximamos! 
-                    // Arco parabólico: sin()
-                    const factor = (120 - dist) / 120;
-                    lift = 1.0 + Math.sin(factor * Math.PI) * 15; // Pulo sútil até forte
-                    heightScale = 1.0 + Math.abs(Math.cos(factor * Math.PI * 4)) * 3; // Estica as notas pra parecer barras neon equalizadoras
-                } else if (dist <= 0 && dist > -30) {
-                    // Passando por nós, esticaão dramático e luz!
-                    lift = 25; 
-                    heightScale = 8.0;
+                let lift, scaleMul, opacity;
+
+                if (dist > 0 && dist < 180) {
+                    // Aproximando: sobe graciosamente em arco e cresce
+                    const factor = (180 - dist) / 180;
+                    lift = 2.0 + Math.sin(factor * Math.PI) * 20;
+                    scaleMul = note.baseScale * (1.0 + factor * 3.5);
+                    opacity = 0.5 + factor * 0.5;
+                } else if (dist <= 0 && dist > -40) {
+                    // Passando por nós: explosão de escala!
+                    const passT = (-dist) / 40;
+                    lift = 22 - passT * 20;
+                    scaleMul = note.baseScale * (4.5 - passT * 3.5);
+                    opacity = 1.0 - passT * 0.9;
                 } else {
-                    // Descansando distante
-                    lift = 1.5 + Math.sin(el * 3 + i) * 0.5; // leve pulso natural de espera
+                    // Repouso: flutua suavemente
+                    lift = 2.0 + Math.sin(el * 1.5 + note.phaseOffset) * 1.5;
+                    scaleMul = note.baseScale * (0.9 + Math.sin(el * 2 + note.phaseOffset) * 0.15);
+                    opacity = 0.45;
                 }
 
-                dummy.position.copy(note.basePos).addScaledVector(note.normal, lift);
-                dummy.quaternion.copy(note.rot);
-                dummy.scale.set(1.2, 1.2 * heightScale, 1.2); 
-                
-                // Rotaciona a nota ativamente e freneticamente no ar
-                if (dist > -20 && dist < 120) {
-                    dummy.rotateY(el * 5 + i);
-                    dummy.rotateX(el * 2);
-                }
-
-                dummy.updateMatrix();
-                instancedNotes.setMatrixAt(i, dummy.matrix);
+                sprite.position.copy(note.basePos).addScaledVector(note.normal, lift);
+                sprite.scale.set(scaleMul, scaleMul, 1);
+                sprite.material.opacity = Math.max(0, Math.min(1, opacity));
             }
-            instancedNotes.instanceMatrix.needsUpdate = true;
 
             // Anima fundo / partículas rodando em contra ciclo levemente
             particles.rotation.y = el * 0.05;
