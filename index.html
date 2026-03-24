@@ -97,7 +97,7 @@
         const keyStep = 8;    // Segmentos por tecla (espaçamento entre teclas)
         const keyWidth = 20;   // Largura da tecla branca (eixo binormal = "através" da pista)
         const keyHeight = 1.8;  // Espessura da tecla branca
-        const keyDepth = 6.0;  // Comprimento da tecla branca (ao longo da pista) - visível
+        const keyDepth = 7.4;  // Comprimento da tecla branca (ao longo da pista) - visível
         const keyGap = 0.5;  // Fresta entre teclas
 
         const bkWidth = keyWidth * 0.52;  // Tecla preta mais estreita
@@ -144,19 +144,24 @@
 
             const noteInOctave = pianoPattern[k % 12];
 
-            // Orientação: binormal = "X" (largura), normal = "Y" (cima), tangente = "Z" (frente)
             dummyMat.makeBasis(b, n, tDir);
             dummy.position.copy(p);
             dummy.setRotationFromMatrix(dummyMat);
+            
+            // Rotação Definitiva
+            dummy.rotateX(-35 * (Math.PI / 180));
+            dummy.rotateY(3 * (Math.PI / 180));
+            dummy.rotateZ(-180 * (Math.PI / 180));
 
             if (!noteInOctave.isBlack) {
-                // Tecla branca: na superfície do trilho
+                dummy.scale.set(1.0, 1.0, 1.0); // Escala local X(width) e Z(depth)
                 dummy.updateMatrix();
                 instancedWhiteKeys.setMatrixAt(whiteIdx++, dummy.matrix);
             } else {
-                // Tecla preta: elevada acima E recuada para a frente do carrinho poder ver
-                dummy.position.addScaledVector(n, keyHeight * 0.8);  // Sobe
-                dummy.position.addScaledVector(tDir, -keyDepth * 0.18); // Recua levemente (visível)
+                dummy.scale.set(1.0, 1.0, 1.0);
+                // Aplica alinhamento dinâmico
+                dummy.position.addScaledVector(n, keyHeight * 0.8);
+                dummy.position.addScaledVector(tDir, keyDepth * -0.18);
                 dummy.updateMatrix();
                 instancedBlackKeys.setMatrixAt(blackIdx++, dummy.matrix);
             }
@@ -165,18 +170,11 @@
         instancedBlackKeys.count = blackIdx;
         instancedWhiteKeys.instanceMatrix.needsUpdate = true;
         instancedBlackKeys.instanceMatrix.needsUpdate = true;
+
         scene.add(instancedWhiteKeys);
         scene.add(instancedBlackKeys);
 
-        // Trilhos neon laterais (bordas do teclado)
-        const tubeGeo1 = new THREE.TubeGeometry(curve, segmentsCount, 0.35, 8, true);
-        const tubeMat1 = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.25 });
-        const tube1 = new THREE.Mesh(tubeGeo1, tubeMat1);
-        scene.add(tube1);
 
-        const tubeMat2 = new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true, transparent: true, opacity: 0.25 });
-        const tube2 = new THREE.Mesh(tubeGeo1, tubeMat2);
-        scene.add(tube2);
 
         // ============================================================
         // PENTAGRAMA DE VIDRO (Linhas Musicais 3D) - Montanha Russa Alternativa (ESCALA 10X)
@@ -190,13 +188,13 @@
             metalness: 0.2,
             ior: 1.5,
             transparent: true,
-            opacity: 0.5,
+            opacity: 0.2,
             side: THREE.DoubleSide,
             reflectivity: 0.9
         });
 
         const staffLinesCount = 5;
-        const staffLineRadius = 0.8;   // Antes 0.12
+        const staffLineRadius = 2;   // Antes 0.12
         const staffSpacing = 12.0;    // Antes 1.6
 
         // Criar os pontos da curva do pentagrama com efeito entrelaçado (10x maior)
@@ -347,6 +345,91 @@
             });
         }
 
+        // ============================================================
+        // PLANETAS MUSICAIS (Esferas de Fundo 3D)
+        // ============================================================
+        function createPlanetTexture(symbol, color) {
+            const size = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = size * 2;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            // Superfície do planeta rochoso escuro
+            ctx.fillStyle = '#0a0a14';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Brilho forte apenas nas notas incrustadas
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 40;
+
+            ctx.fillStyle = color;
+            ctx.font = 'bold 220px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Desenha em equador duplo para circundar o planeta
+            ctx.fillText(symbol, size * 0.5, size / 2 + 10);
+            ctx.fillText(symbol, size * 1.5, size / 2 + 10);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const planetGeo = new THREE.SphereGeometry(1, 48, 48); // Planetinhas detalhados
+        const planetMaterials = [];
+        for (let s = 0; s < noteSymbols.length; s++) {
+            for (let c = 0; c < noteColors.length; c++) {
+                const tex = createPlanetTexture(noteSymbols[s], noteColors[c]);
+                planetMaterials.push(
+                    new THREE.MeshStandardMaterial({
+                        map: tex,
+                        emissive: noteColors[c],
+                        emissiveMap: tex,
+                        emissiveIntensity: 0.8,
+                        roughness: 0.9,
+                        metalness: 0.1,
+                        transparent: true
+                    })
+                );
+            }
+        }
+
+        const bgStarsGroup = new THREE.Group();
+        scene.add(bgStarsGroup);
+        const bgStarsCountMax = 441;
+        const bgStarsData = [];
+
+        for (let i = 0; i < bgStarsCountMax; i++) {
+            const matIdx = Math.floor(Math.random() * planetMaterials.length);
+            const material = planetMaterials[matIdx].clone(); 
+            // Opacidade do planeta agora é sempre 1.0 como solicitado
+            material.opacity = 1.0;
+            const planet = new THREE.Mesh(planetGeo, material);
+            
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos((Math.random() * 2) - 1);
+            const distance = 500 + Math.random() * 700; 
+            
+            planet.position.x = distance * Math.sin(phi) * Math.cos(theta);
+            planet.position.y = distance * Math.sin(phi) * Math.sin(theta);
+            planet.position.z = distance * Math.cos(phi);
+            
+            planet.rotation.x = Math.random() * Math.PI * 2;
+            planet.rotation.y = Math.random() * Math.PI * 2;
+
+            const baseScale = (25 + Math.random() * 60) * 1.6; // Multiplicador de Tamanho=160
+            planet.scale.set(baseScale, baseScale, baseScale);
+            
+            bgStarsGroup.add(planet);
+            bgStarsData.push({ 
+                mesh: planet, 
+                rotX: (Math.random() - 0.5) * 0.015,
+                rotY: (Math.random() - 0.5) * 0.015
+            });
+        }
+
+
+
         // Poiera e Estrelas Espaciais (Sentimento de velocidade)
         const particlesGeo = new THREE.BufferGeometry();
         const particlesCount = 2000;
@@ -364,12 +447,7 @@
         scene.add(cartGroup);
         cartGroup.add(camera);
 
-        const noseGeo = new THREE.ConeGeometry(2, 8, 4);
-        const noseMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.2 });
-        const nose = new THREE.Mesh(noseGeo, noseMat);
-        nose.rotation.x = -Math.PI / 2;
-        nose.position.set(0, -3, -4);
-        camera.add(nose); // Fica preso na tela da câmera
+
 
         // Faróis Principais do Carrinho!
         const spot1 = new THREE.SpotLight(0x00ffff, 4, 300, Math.PI / 6, 0.5, 1);
@@ -445,8 +523,8 @@
             const tangent = frames.tangents[currentIdx];
             const binormal = frames.binormals[currentIdx];
 
-            // Câmera fica UM POUCO ACIMA do trilho e move lateralmente guiada pelos controles
-            cartGroup.position.copy(camPos).addScaledVector(normal, 4).addScaledVector(binormal, currentLateralOffset);
+            // Câmera fica UM POUCO ACIMA do trilho e move lateralmente guiada
+            cartGroup.position.copy(camPos).addScaledVector(normal, 4.0).addScaledVector(binormal, currentLateralOffset).addScaledVector(tangent, 0.0);
 
             // Olha um pouco pra frente e levanta o olhar dependendo da pista
             const lookAheadPos = curve.getPointAt((trackProgress + 0.015) % 1);
@@ -455,11 +533,9 @@
 
             // Fundamental: Configurar o "UP" da câmera para ser o "Normal" contorce a câmera como num looping!
             cartGroup.up.copy(normal);
-            cartGroup.lookAt(lookAheadPos.clone().addScaledVector(lookAheadNormal, 4));
+            cartGroup.lookAt(lookAheadPos.clone().addScaledVector(lookAheadNormal, 4.0));
 
-            // Efeito visual dos trilhos correndo pelas beiradas
-            tube1.position.copy(scene.position).addScaledVector(frames.binormals[0], keyWidth / 2);
-            tube2.position.copy(scene.position).addScaledVector(frames.binormals[0], -keyWidth / 2);
+
 
             // Animando as Notas Musicais (Sprites Billboard)
             for (let i = 0; i < notesCount; i++) {
@@ -500,6 +576,16 @@
             // Anima fundo / partículas rodando em contra ciclo levemente
             particles.rotation.y = el * 0.05;
             particles.rotation.z = el * 0.02;
+            
+            bgStarsGroup.rotation.y = el * 0.01;
+            bgStarsGroup.rotation.x = el * 0.005;
+
+            bgStarsData.forEach(planetObj => {
+                if (planetObj.mesh.visible) {
+                    planetObj.mesh.rotation.x += planetObj.rotX;
+                    planetObj.mesh.rotation.y += planetObj.rotY;
+                }
+            });
 
             renderer.render(scene, camera);
         }
