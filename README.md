@@ -15,10 +15,15 @@ Uma experiência imersiva de montanha-russa tridimensional construída com **Thr
 
 ## 🎮 Controles
 
-- **Seta para Cima**: Aumentar velocidade.
-- **Seta para Baixo**: Reduzir velocidade.
-- **Seta para Esquerda / Direita**: Movimentação lateral manual no trilho.
-- **Mouse**: Controle fino do deslocamento lateral (offset).
+- **Seta para Cima**: Aumentar velocidade (até 4× a velocidade normal).
+- **Seta para Baixo**: Reduzir velocidade (quase parar).
+- **Seta para Esquerda / Direita**: Movimentação lateral mais rápida no trilho.
+- **Mouse (eixo X)**: Controle fino do deslocamento lateral (offset ampliado).
+- **Mouse (eixo Y)**: Inclinar o olhar da câmera para cima ou para baixo.
+- **Scroll do Mouse**: Zoom in/out (ajuste do campo de visão).
+- **Campo de Visão Dinâmico**: O FOV aumenta automaticamente com a velocidade para amplificar a sensação de movimento.
+- **Banking**: A câmera inclina levemente nos movimentos laterais, simulando uma curva real.
+- **Look-ahead Variável**: Quanto mais rápido, mais a câmera antecipa a curva à frente.
 
 ## 🛠️ Tecnologias Utilizadas
 

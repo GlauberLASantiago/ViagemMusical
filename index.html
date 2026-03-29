@@ -472,13 +472,24 @@
         // Controles de Movimento (Mouse e Setas)
         let targetLateralOffset = 0;
         let currentLateralOffset = 0;
+        let targetVerticalLook = 0;
+        let currentVerticalLook = 0;
+        let fovOffset = 0;
+        const MAX_SPEED = 0.0016;
         let targetSpeed = 0.0004;
         let speed = 0.0004; // Velocidade da montanha russa
-        const maxLateral = keyWidth / 2 - 3;
+        const maxLateral = keyWidth * 0.75;
+        const maxVerticalLook = 10;
 
         window.addEventListener('mousemove', (e) => {
             const normalizedX = (e.clientX / window.innerWidth) * 2 - 1;
+            const normalizedY = (e.clientY / window.innerHeight) * 2 - 1;
             targetLateralOffset = normalizedX * maxLateral;
+            targetVerticalLook = -normalizedY * maxVerticalLook;
+        });
+
+        window.addEventListener('wheel', (e) => {
+            fovOffset = Math.max(-30, Math.min(30, fovOffset + e.deltaY * 0.05));
         });
 
         const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
@@ -498,12 +509,12 @@
             const el = clock.getElapsedTime();
 
             // Controle de Velocidade e Movimento Lateral pelas setas
-            if (keys.ArrowUp) targetSpeed = 0.0008;
-            else if (keys.ArrowDown) targetSpeed = 0.0001;
+            if (keys.ArrowUp) targetSpeed = MAX_SPEED;
+            else if (keys.ArrowDown) targetSpeed = 0.00005;
             else targetSpeed = 0.0004;
 
-            if (keys.ArrowLeft) targetLateralOffset -= 0.5;
-            if (keys.ArrowRight) targetLateralOffset += 0.5;
+            if (keys.ArrowLeft) targetLateralOffset -= 1.0;
+            if (keys.ArrowRight) targetLateralOffset += 1.0;
 
             // Limita o movimento lateral para não sair do trilho
             targetLateralOffset = Math.max(-maxLateral, Math.min(maxLateral, targetLateralOffset));
@@ -511,6 +522,12 @@
             // Suavização do movimento
             speed += (targetSpeed - speed) * 0.05;
             currentLateralOffset += (targetLateralOffset - currentLateralOffset) * 0.05;
+            currentVerticalLook += (targetVerticalLook - currentVerticalLook) * 0.08;
+
+            // Campo de visão dinâmico: mais rápido = FOV maior (sensação de velocidade)
+            const targetFov = 75 + fovOffset + (speed / MAX_SPEED) * 35;
+            camera.fov += (targetFov - camera.fov) * 0.03;
+            camera.updateProjectionMatrix();
 
             // Avança no trajeto
             trackProgress += speed;
@@ -526,14 +543,19 @@
             // Câmera fica UM POUCO ACIMA do trilho e move lateralmente guiada
             cartGroup.position.copy(camPos).addScaledVector(normal, 4.0).addScaledVector(binormal, currentLateralOffset).addScaledVector(tangent, 0.0);
 
-            // Olha um pouco pra frente e levanta o olhar dependendo da pista
-            const lookAheadPos = curve.getPointAt((trackProgress + 0.015) % 1);
-            const lookAheadIdx = Math.floor(((trackProgress + 0.015) % 1) * segmentsCount);
+            // Distância de look-ahead varia com a velocidade: mais rápido = olha mais longe
+            const lookAheadDist = 0.010 + (speed / MAX_SPEED) * 0.015;
+            const lookAheadPos = curve.getPointAt((trackProgress + lookAheadDist) % 1);
+            const lookAheadIdx = Math.floor(((trackProgress + lookAheadDist) % 1) * segmentsCount);
             const lookAheadNormal = frames.normals[lookAheadIdx];
 
+            // Banking: inclina levemente a câmera ao mover lateralmente
+            const bankingFactor = (targetLateralOffset - currentLateralOffset) * 0.015;
+            const upWithBank = normal.clone().addScaledVector(binormal, bankingFactor).normalize();
+
             // Fundamental: Configurar o "UP" da câmera para ser o "Normal" contorce a câmera como num looping!
-            cartGroup.up.copy(normal);
-            cartGroup.lookAt(lookAheadPos.clone().addScaledVector(lookAheadNormal, 4.0));
+            cartGroup.up.copy(upWithBank);
+            cartGroup.lookAt(lookAheadPos.clone().addScaledVector(lookAheadNormal, 4.0 + currentVerticalLook));
 
 
 
